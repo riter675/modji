@@ -8,7 +8,7 @@ The current route handlers are development-scale adapters, not a versioned publi
 
 ## Data foundation (community reports connected)
 
-`docker-compose.yml` defines local PostGIS and Redis. `infrastructure/database/migrations/001_initial.sql` defines the broader spatial schema and remains unapplied. The deployed web app uses the connected Prisma Postgres instance for accounts and community reports through `pg`; it idempotently creates the tables documented in migrations 002 and 003 on first use. These live tables store coordinates as numeric latitude/longitude because Prisma Postgres does not currently support PostGIS. Upstash Redis rate-limit support is optional and enabled through REST environment variables; no Redis store is connected yet. A PostGIS-capable production database is still needed before spatial queries can move out of numeric bounding boxes.
+`docker-compose.yml` defines local PostGIS and Redis. Neon hosts the production spatial database in Europe Central; migrations 001 and 003 have been applied. The web app connects through `MODJI_DATABASE_URL_POOLED` and idempotently ensures its feature tables. The Upstash Redis database is provisioned in Europe (Frankfurt); distributed rate limits activate when its REST URL and token are added to the Vercel project. Some current report and favorite queries still use numeric latitude/longitude bounding boxes; moving them to PostGIS operators is the next spatial-query step.
 
 ## Intended next architecture
 

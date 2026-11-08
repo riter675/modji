@@ -26,7 +26,7 @@ async function ensureAppSchema(pool: Pool) {
 }
 
 export function getPool() {
-  const connectionString = process.env.DATABASE_URL_POOLED ?? process.env.DATABASE_POSTGRES_URL ?? process.env.DATABASE_URL;
+  const connectionString = process.env.MODJI_DATABASE_URL_POOLED ?? process.env.DATABASE_URL_POOLED ?? process.env.DATABASE_POSTGRES_URL ?? process.env.DATABASE_URL;
   if (!connectionString) throw new Error("Database is not configured.");
   if (!globalForDb.modjiPool) {
     globalForDb.modjiPool = new Pool({ connectionString, max: 3, idleTimeoutMillis: 10000, connectionTimeoutMillis: 8000, ssl: connectionString.includes("localhost") ? undefined : { rejectUnauthorized: false } });
