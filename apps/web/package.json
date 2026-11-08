@@ -11,6 +11,9 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@upstash/ratelimit": "^2.2.0",
+    "@upstash/redis": "^1.41.0",
+    "bcryptjs": "^3.0.3",
     "maplibre-gl": "^5.6.0",
     "next": "^15.3.3",
     "pg": "^8.23.1",

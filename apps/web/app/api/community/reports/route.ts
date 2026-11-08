@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { categories, dbError, ensureDatabaseReady, getPool, reporter } from "../../../../lib/community";
+import { checkRateLimit } from "../../../../lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -27,6 +28,8 @@ export async function POST(request: NextRequest) {
   try {
     await client.query("BEGIN");
     const reporterId = await reporter(client, request, response);
+    const redisAllowed = await checkRateLimit(reporterId, 5, 3600);
+    if (redisAllowed === false) { await client.query("ROLLBACK"); return NextResponse.json({ error: "You can submit up to five reports per hour." }, { status: 429 }); }
     const rate = await client.query("SELECT count(*)::int AS count FROM modji_community_reports WHERE reporter_id=$1 AND created_at > now()-interval '1 hour'", [reporterId]);
     if (rate.rows[0].count >= 5) { await client.query("ROLLBACK"); return NextResponse.json({ error: "You can submit up to five reports per hour." }, { status: 429 }); }
     const dupe = await client.query("SELECT id FROM modji_community_reports WHERE category=$1 AND status IN ('unverified','confirmed') AND expires_at>now() AND 111320*sqrt(power(latitude-$2,2)+power((longitude-$3)*cos(radians($2)),2)) < 50 LIMIT 1", [category, latitude, longitude]);

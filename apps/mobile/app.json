@@ -1,0 +1,43 @@
+{
+  "expo": {
+    "name": "MODJI",
+    "slug": "modji",
+    "scheme": "modji",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "icon": "./assets/modji-app-icon.png",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.riter675.modji",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "MODJI uses your location to show where you are and plan routes."
+      }
+    },
+    "android": {
+      "package": "com.riter675.modji",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/modji-app-icon.png",
+        "backgroundColor": "#ffffff"
+      }
+    },
+    "plugins": [
+      "@maplibre/maplibre-react-native",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow MODJI to use your location for map and route guidance."
+        }
+      ],
+      "expo-secure-store"
+    ],
+    "extra": {
+      "apiBaseUrl": "https://modji-eight.vercel.app"
+    }
+  }
+}

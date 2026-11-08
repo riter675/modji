@@ -8,7 +8,7 @@ The current route handlers are development-scale adapters, not a versioned publi
 
 ## Data foundation (community reports connected)
 
-`docker-compose.yml` defines local PostGIS and Redis. `infrastructure/database/migrations/001_initial.sql` defines the broader spatial and account-oriented schema and remains unapplied. The deployed web app uses the connected Prisma Postgres instance for community reports through `pg`; it idempotently creates the tables described in migration 002 on first use. That live subset stores coordinates as numeric latitude/longitude and does not require PostGIS. Redis, account authentication and the broader schema are not connected.
+`docker-compose.yml` defines local PostGIS and Redis. `infrastructure/database/migrations/001_initial.sql` defines the broader spatial schema and remains unapplied. The deployed web app uses the connected Prisma Postgres instance for accounts and community reports through `pg`; it idempotently creates the tables documented in migrations 002 and 003 on first use. These live tables store coordinates as numeric latitude/longitude because Prisma Postgres does not currently support PostGIS. Upstash Redis rate-limit support is optional and enabled through REST environment variables; no Redis store is connected yet. A PostGIS-capable production database is still needed before spatial queries can move out of numeric bounding boxes.
 
 ## Intended next architecture
 

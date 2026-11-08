@@ -11,10 +11,13 @@ type Place = { lat: string; lon: string; display_name: string; type?: string };
 type Coordinate = { lat: number; lon: number };
 type RouteOption = { distanceKm: number; durationSeconds: number; geometry: { type: "LineString"; coordinates: [number, number][] }; maneuvers: { instruction: string; distanceKm: number; durationSeconds: number; street: string; endShapeIndex: number }[] };
 type TrafficCollection = { type: "FeatureCollection"; features: { type: "Feature"; properties: Record<string, string | number | boolean | null>; geometry: { type: "MultiLineString"; coordinates: [number, number][][] } }[] };
-type TrafficData = { provider: string; updatedAt: { flow: string | null; incidents: string | null }; flow: TrafficCollection; incidents: TrafficCollection; counts: { flow: number; incidents: number } };
+type TrafficData = { provider: string; updatedAt: { flow: string | null; incidents: string | null }; flow: TrafficCollection; incidents: TrafficCollection; communityReports?: FeatureCollection; communityUpdatedAt?: string | null; counts: { flow: number; incidents: number; community?: number } };
 const mapStyles = { liberty: "https://tiles.openfreemap.org/styles/liberty", positron: "https://tiles.openfreemap.org/styles/positron", dark: "https://tiles.openfreemap.org/styles/dark" } as const;
 type MapStyleName = keyof typeof mapStyles;
 type CommunityReport = { id: string; category: string; latitude: number; longitude: number; description: string | null; status: string; validation_count: number };
+type Account = { id: string; email: string; display_name: string; preferred_mode: "auto" | "pedestrian" | "bicycle"; locale: string };
+type SavedPlace = { id: string; label: string; address: string | null; latitude: number; longitude: number };
+type JourneyHistory = { id: string; origin_label: string | null; destination_label: string | null; transport_mode: string; distance_meters: number | null; duration_seconds: number | null };
 
 export default function MapWorkspace() {
   const mapElement = useRef<HTMLDivElement>(null);
@@ -54,6 +57,36 @@ export default function MapWorkspace() {
   const [reportDescription, setReportDescription] = useState("");
   const [communityMessage, setCommunityMessage] = useState("");
   const [communityBusy, setCommunityBusy] = useState(false);
+  const [account, setAccount] = useState<Account | null>(null);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [authMessage, setAuthMessage] = useState("");
+  const [savedPlaces, setSavedPlaces] = useState<SavedPlace[]>([]);
+  const [journeyHistory, setJourneyHistory] = useState<JourneyHistory[]>([]);
+
+  useEffect(() => { void (async () => { try { const response = await fetch("/api/auth/me"); const data = await response.json() as { account?: Account }; if (data.account) setAccount(data.account); } catch { /* Keep the map usable while account service is offline. */ } })(); }, []);
+  useEffect(() => { if (!account) { setSavedPlaces([]); setJourneyHistory([]); return; } void Promise.all([fetch("/api/favorites").then((r) => r.json()), fetch("/api/journeys").then((r) => r.json())]).then(([places, journeys]) => { setSavedPlaces(places.places ?? []); setJourneyHistory(journeys.journeys ?? []); }).catch(() => undefined); }, [account]);
+
+  async function authenticate() {
+    setAuthMessage("");
+    try { const response = await fetch(`/api/auth/${authMode === "login" ? "login" : "register"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: authEmail, password: authPassword, displayName }) }); const data = await response.json() as { account?: Account; error?: string }; if (!response.ok || !data.account) throw new Error(data.error || "Sign in failed."); setAccount(data.account); setAuthPassword(""); setAuthMessage("Signed in successfully."); }
+    catch (cause) { setAuthMessage(cause instanceof Error ? cause.message : "Sign in failed."); }
+  }
+
+  async function signOut() { await fetch("/api/auth/logout", { method: "POST" }); setAccount(null); setAccountOpen(false); }
+  async function saveCurrentPlace() {
+    if (!place) return;
+    const label = window.prompt("Name this saved place", place.display_name.split(",")[0].slice(0, 80)); if (!label?.trim()) return;
+    const response = await fetch("/api/favorites", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ label: label.trim(), address: place.display_name, latitude: Number(place.lat), longitude: Number(place.lon) }) });
+    const data = await response.json() as { place?: SavedPlace; error?: string }; if (!response.ok || !data.place) { setAuthMessage(data.error || "Place could not be saved."); return; } setSavedPlaces((current) => [data.place!, ...current.filter((item) => item.id !== data.place!.id)]);
+  }
+  async function saveJourney(route: RouteOption, starting: Coordinate) {
+    if (!account || !place) return;
+    try { const response = await fetch("/api/journeys", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ originLabel: originQuery || "Selected origin", destinationLabel: place.display_name, origin: starting, destination: { lat: Number(place.lat), lon: Number(place.lon) }, mode: costing, distanceMeters: route.distanceKm * 1000, durationSeconds: route.durationSeconds }) }); if (response.ok) { const data = await (await fetch("/api/journeys")).json() as { journeys?: JourneyHistory[] }; setJourneyHistory(data.journeys ?? []); } } catch { /* Route still works if history is unavailable. */ }
+  }
 
   async function loadReports() {
     const bounds = map.current?.getBounds(); if (!bounds) return;
@@ -176,8 +209,8 @@ export default function MapWorkspace() {
   function clearTraffic() {
     const instance = map.current;
     if (!instance) return;
-    ["modji-traffic-incidents", "modji-traffic-flow"].forEach((id) => { if (instance.getLayer(id)) instance.removeLayer(id); });
-    ["modji-traffic-incidents", "modji-traffic-flow"].forEach((id) => { if (instance.getSource(id)) instance.removeSource(id); });
+    ["modji-traffic-incidents", "modji-traffic-flow", "modji-traffic-community"].forEach((id) => { if (instance.getLayer(id)) instance.removeLayer(id); });
+    ["modji-traffic-incidents", "modji-traffic-flow", "modji-traffic-community"].forEach((id) => { if (instance.getSource(id)) instance.removeSource(id); });
   }
 
   function drawTraffic(data: TrafficData) {
@@ -194,6 +227,11 @@ export default function MapWorkspace() {
     else {
       instance.addSource("modji-traffic-incidents", { type: "geojson", data: data.incidents as FeatureCollection });
       instance.addLayer({ id: "modji-traffic-incidents", type: "line", source: "modji-traffic-incidents", layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": ["case", ["==", ["get", "roadClosed"], true], "#8b1f27", "#a043b7"], "line-width": 5, "line-dasharray": [1.5, 1] } });
+    }
+    if (data.communityReports) {
+      const reportSource = instance.getSource("modji-traffic-community") as GeoJSONSource | undefined;
+      if (reportSource) reportSource.setData(data.communityReports);
+      else { instance.addSource("modji-traffic-community", { type: "geojson", data: data.communityReports }); instance.addLayer({ id: "modji-traffic-community", type: "circle", source: "modji-traffic-community", paint: { "circle-radius": 7, "circle-color": "#d94a36", "circle-stroke-color": "#ffffff", "circle-stroke-width": 2 } }); }
     }
   }
 
@@ -316,7 +354,7 @@ export default function MapWorkspace() {
       const payload = await response.json() as { route?: RouteOption; alternatives?: RouteOption[]; error?: string };
       if (!response.ok || !payload.route) throw new Error(payload.error || "Route calculation failed.");
       const choices = [payload.route, ...(payload.alternatives ?? [])];
-      setOrigin(routeOrigin); setRouteChoices(choices); setActiveRoute(0); drawRoute(choices[0]);
+      setOrigin(routeOrigin); setRouteChoices(choices); setActiveRoute(0); drawRoute(choices[0]); void saveJourney(choices[0], routeOrigin);
     } catch (cause) {
       setRouteError(cause instanceof Error ? cause.message : "Route calculation failed.");
     } finally { setRouteLoading(false); }
@@ -330,7 +368,7 @@ export default function MapWorkspace() {
       <Link className="brand" href="/" aria-label="MODJI home"><Image src="/modji-logo-original.jpeg" alt="MODJI" width={38} height={38} priority /><span>MODJI</span></Link>
       <span className="tagline">Navigate your world.</span>
       <nav aria-label="Main navigation"><a className="active" href="#explore">Explore</a><a href="#navigate" onClick={(event) => { event.preventDefault(); if (place) setRoutePanelOpen(true); else setError("Search for a destination first to plan a route."); }}>Navigate</a><a href="#traffic" onClick={(event) => { event.preventDefault(); toggleTraffic(); }}>Traffic</a><a href="#community" onClick={(event) => { event.preventDefault(); setCommunityOpen(!communityOpen); void loadReports(); }}>Community</a></nav>
-      <button className="avatar" aria-label="Accounts are not implemented yet" disabled title="Accounts are not implemented yet">M</button>
+      <button className="avatar" aria-label="My MODJI account" title="My MODJI" onClick={() => setAccountOpen(!accountOpen)}>{account?.display_name?.[0]?.toUpperCase() ?? account?.email?.[0]?.toUpperCase() ?? "M"}</button>
     </header>
     <section className="search-panel" aria-label="Explore the map">
       <div className="eyebrow"><span className="live-dot" /> WORLD EXPLORER</div>
@@ -344,9 +382,10 @@ export default function MapWorkspace() {
       <p className="search-hint">Search cities, landmarks, addresses and more</p>
       <button className="location-button" onClick={locate}><span>◎</span> Use my location</button>
       {error && <div className="message error" role="alert">{error}</div>}
-      {trafficOpen && <div className="traffic-message" role="status"><b>{trafficLoading ? "Loading live traffic…" : trafficError ? "Live traffic unavailable" : "Live traffic"}</b><span>{trafficError || (trafficData ? `${trafficData.counts.flow} flow segments · ${trafficData.counts.incidents} incidents` : "Waiting for traffic data.")}</span>{trafficData && <span>Flow updated: {trafficData.updatedAt.flow ?? "time unavailable"} · Incidents updated: {trafficData.updatedAt.incidents ?? "time unavailable"}</span>}</div>}
+      {trafficOpen && <div className="traffic-message" role="status"><b>{trafficLoading ? "Loading traffic…" : trafficError ? "Traffic unavailable" : trafficData?.provider === "MODJI community reports" ? "Community road reports" : "Live HERE traffic"}</b><span>{trafficError || (trafficData?.provider === "MODJI community reports" ? `${trafficData.counts.community ?? 0} active community reports · live speed data is not configured` : trafficData ? `${trafficData.counts.flow} flow segments · ${trafficData.counts.incidents} provider incidents` : "Waiting for traffic data.")}</span>{trafficData?.provider !== "MODJI community reports" && trafficData && <span>Flow updated: {trafficData.updatedAt.flow ?? "time unavailable"} · Incidents updated: {trafficData.updatedAt.incidents ?? "time unavailable"}</span>}{trafficData?.provider === "MODJI community reports" && <span>Community report time: {trafficData.communityUpdatedAt ?? "no active reports"}</span>}</div>}
       {communityOpen && <section className="community-panel" aria-label="Community reports"><div className="place-label">COMMUNITY ROAD REPORTS</div><p>Reports use the map center ({map.current?.getCenter().lat.toFixed(4)}, {map.current?.getCenter().lng.toFixed(4)}). Active reports expire after two hours.</p><select aria-label="Report category" value={reportCategory} onChange={(event) => setReportCategory(event.target.value)}><option value="accident">Accident</option><option value="congestion">Congestion</option><option value="slow_traffic">Slow traffic</option><option value="roadworks">Roadworks</option><option value="road_closure">Road closure</option><option value="hazard">Hazard</option><option value="object_on_road">Object on road</option><option value="vehicle_breakdown">Vehicle breakdown</option><option value="other">Other</option></select><input maxLength={500} placeholder="Short description (optional)" value={reportDescription} onChange={(event) => setReportDescription(event.target.value)} /><button className="route-submit" disabled={communityBusy} onClick={() => void submitReport()}>{communityBusy ? "Submitting…" : "Report at map center"}</button>{communityMessage && <div className="community-note" role="status">{communityMessage}</div>}<div className="report-list">{reports.map((report) => <article key={report.id}><b>{report.category.replaceAll("_", " ")}</b><span>{report.description || "Community reported"} · {report.status}</span><div><button onClick={() => void voteReport(report.id,"confirm")}>Confirm</button><button onClick={() => void voteReport(report.id,"resolved")}>Resolved</button><button onClick={() => void voteReport(report.id,"incorrect")}>Incorrect</button></div></article>)}{reports.length === 0 && <span>No active reports in this view.</span>}</div></section>}
-      {place && <article className="place-card" aria-live="polite"><div className="place-pin">●</div><div className="place-content"><div className="place-label">{place.type ? place.type.replaceAll("_", " ") : "PLACE"}</div><h2>{place.display_name}</h2><p>{Number(place.lat).toFixed(5)}° · {Number(place.lon).toFixed(5)}°</p><button className="route-open" onClick={() => setRoutePanelOpen(!routePanelOpen)}>{routePanelOpen ? "Close route planner" : "Plan a route"}</button></div></article>}
+      {accountOpen && <section className="account-panel" aria-label="My MODJI account"><div className="account-head"><div className="place-label">MY MODJI</div><button onClick={() => setAccountOpen(false)}>Close</button></div>{account ? <><h2>{account.display_name || account.email}</h2><p>{account.email}</p><label>Display name<input maxLength={80} value={displayName || account.display_name} onChange={(event) => setDisplayName(event.target.value)} placeholder="Your name" /></label><button className="route-stop" onClick={async () => { const response = await fetch("/api/auth/me", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ displayName }) }); const data = await response.json() as { account?: Account }; if (data.account) { setAccount(data.account); setDisplayName(""); } }}>Save profile</button><label>Preferred travel mode<select value={account.preferred_mode} onChange={async (event) => { const preferredMode = event.target.value; const response = await fetch("/api/auth/me", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ preferredMode }) }); const data = await response.json() as { account?: Account }; if (data.account) setAccount(data.account); }}><option value="auto">Driving</option><option value="pedestrian">Walking</option><option value="bicycle">Cycling</option></select></label><div className="place-label">SAVED PLACES</div><div className="saved-list">{savedPlaces.map((saved) => <button key={saved.id} onClick={() => { setPlace({ lat: String(saved.latitude), lon: String(saved.longitude), display_name: saved.address || saved.label }); map.current?.flyTo({ center: [saved.longitude, saved.latitude], zoom: 15 }); }}><b>{saved.label}</b><span>{saved.address || `${saved.latitude.toFixed(4)}, ${saved.longitude.toFixed(4)}`}</span></button>)}{savedPlaces.length === 0 && <p>No saved places yet.</p>}</div><div className="place-label">RECENT JOURNEYS</div><div className="saved-list">{journeyHistory.slice(0, 5).map((journey) => <div key={journey.id}><b>{journey.origin_label || "Origin"} → {journey.destination_label || "Destination"}</b><span>{journey.distance_meters ? `${(journey.distance_meters / 1000).toFixed(1)} km · ` : ""}{journey.duration_seconds ? `${Math.round(journey.duration_seconds / 60)} min` : journey.transport_mode}</span></div>)}{journeyHistory.length === 0 && <p>No journey history yet.</p>}</div><button className="route-stop" onClick={() => void signOut()}>Sign out</button><button className="delete-account" onClick={async () => { if (!window.confirm("Delete your MODJI account, saved places and journey history?")) return; const response = await fetch("/api/auth/me", { method: "DELETE" }); if (response.ok) { setAccount(null); setAccountOpen(false); } }}>Delete account and data</button></> : <><div className="route-tabs"><button className={authMode === "login" ? "selected" : ""} onClick={() => setAuthMode("login")}>Sign in</button><button className={authMode === "register" ? "selected" : ""} onClick={() => setAuthMode("register")}>Create account</button></div>{authMode === "register" && <input placeholder="Your name (optional)" value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={80} />}<input placeholder="Email address" type="email" autoComplete="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} /><input placeholder={authMode === "register" ? "Password (12 characters min.)" : "Password"} type="password" autoComplete={authMode === "login" ? "current-password" : "new-password"} value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} /><button className="route-submit" onClick={() => void authenticate()}>{authMode === "login" ? "Sign in" : "Create account"}</button><p>Password reset will be available after an email service is configured.</p>{authMessage && <div className="community-note" role="status">{authMessage}</div>}</>}</section>}
+      {place && <article className="place-card" aria-live="polite"><div className="place-pin">●</div><div className="place-content"><div className="place-label">{place.type ? place.type.replaceAll("_", " ") : "PLACE"}</div><h2>{place.display_name}</h2><p>{Number(place.lat).toFixed(5)}° · {Number(place.lon).toFixed(5)}°</p>{account && <button className="route-open" onClick={() => void saveCurrentPlace()}>Save place</button>}<button className="route-open" onClick={() => setRoutePanelOpen(!routePanelOpen)}>{routePanelOpen ? "Close route planner" : "Plan a route"}</button></div></article>}
       {place && routePanelOpen && <section className="route-panel" aria-label="Route planner">
         <div className="place-label">ROUTE PLANNER</div>
         <div className="origin-row"><input aria-label="Starting point" placeholder="Starting point or address" value={originQuery} onChange={(event) => { setOriginQuery(event.target.value); setOrigin(null); }} /><button onClick={useCurrentOrigin} aria-label="Use current location as route origin">◎</button></div>

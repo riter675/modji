@@ -7,11 +7,14 @@ export const categories = ["accident", "congestion", "slow_traffic", "roadworks"
 export type Category = (typeof categories)[number];
 
 export async function reporter(client: PoolClient, request: NextRequest, response: NextResponse) {
+  const bearer = request.headers.get("authorization");
+  const nativeToken = bearer?.startsWith("Bearer ") ? bearer.slice(7) : "";
+  const validNativeToken = /^[A-Za-z0-9_-]{40,60}$/.test(nativeToken);
   const existing = request.cookies.get("modji_reporter")?.value;
-  const token = existing && /^[a-f0-9]{64}$/.test(existing) ? existing : randomBytes(32).toString("hex");
+  const token = existing && /^[a-f0-9]{64}$/.test(existing) ? existing : validNativeToken ? nativeToken : randomBytes(32).toString("hex");
   const hash = createHash("sha256").update(token).digest("hex");
   const result = await client.query("INSERT INTO modji_reporters(token_hash) VALUES ($1) ON CONFLICT (token_hash) DO UPDATE SET last_seen_at=now() RETURNING id", [hash]);
-  if (!existing) response.cookies.set("modji_reporter", token, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 365 });
+  if (!existing && !validNativeToken) response.cookies.set("modji_reporter", token, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 365 });
   return result.rows[0].id as string;
 }
 

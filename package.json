@@ -9,7 +9,9 @@
     "build": "pnpm --filter @modji/web build",
     "lint": "pnpm --filter @modji/web lint",
     "typecheck": "pnpm --filter @modji/web typecheck",
-    "test": "pnpm --filter @modji/web test"
+    "test": "pnpm --filter @modji/web test",
+    "mobile:typecheck": "pnpm --filter @modji/mobile typecheck",
+    "mobile:export": "pnpm --filter @modji/mobile exec expo export --platform android"
   },
   "devDependencies": { "turbo": "^2.5.0", "typescript": "^5.8.3" }
 }

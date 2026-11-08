@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { ensureDatabaseReady, getPool } from "../../../lib/db";
 
 export const runtime = "nodejs";
 type Link = { points?: Array<{ lat: number; lng: number }> };
@@ -27,8 +28,6 @@ function asLines(shape?: Shape): [number, number][][] {
 }
 
 export async function GET(request: NextRequest) {
-  const apiKey = process.env.HERE_TRAFFIC_API_KEY;
-  if (!apiKey) return NextResponse.json({ error: "HERE traffic is not configured. Add HERE_TRAFFIC_API_KEY to the server environment." }, { status: 503 });
   const values = request.nextUrl.searchParams.get("bbox")?.split(",").map(Number);
   if (!values || values.length !== 4 || values.some((value) => !Number.isFinite(value))) {
     return NextResponse.json({ error: "Provide bbox=west,south,east,north." }, { status: 400 });
@@ -36,6 +35,14 @@ export async function GET(request: NextRequest) {
   const [west, south, east, north] = values;
   if (west < -180 || east > 180 || south < -85 || north > 85 || west >= east || south >= north || east - west > 0.3 || north - south > 0.3) {
     return NextResponse.json({ error: "Choose a valid map area no wider than 0.3 degrees." }, { status: 400 });
+  }
+  const apiKey = process.env.HERE_TRAFFIC_API_KEY;
+  if (!apiKey) {
+    try {
+      const pool = getPool(); await ensureDatabaseReady();
+      const { rows } = await pool.query("SELECT id,category,latitude,longitude,description,status,validation_count,created_at,expires_at FROM modji_community_reports WHERE status IN ('unverified','confirmed') AND expires_at>now() AND latitude BETWEEN $1 AND $2 AND longitude BETWEEN $3 AND $4 ORDER BY created_at DESC LIMIT 300", [south,north,west,east]);
+      return NextResponse.json({ provider: "MODJI community reports", updatedAt: { flow: null, incidents: null }, flow: { type: "FeatureCollection", features: [] }, incidents: { type: "FeatureCollection", features: [] }, communityReports: { type: "FeatureCollection", features: rows.map((row) => ({ type: "Feature", properties: { source: "MODJI community", id: row.id, category: row.category, status: row.status, description: row.description, validations: row.validation_count, reportedAt: row.created_at, expiresAt: row.expires_at }, geometry: { type: "Point", coordinates: [row.longitude, row.latitude] } })) }, communityUpdatedAt: rows[0]?.created_at ?? null, counts: { flow: 0, incidents: 0, community: rows.length } }, { headers: { "Cache-Control": "no-store" } });
+    } catch { return NextResponse.json({ error: "Community traffic is temporarily unavailable." }, { status: 503 }); }
   }
   const cacheKey = values.join(",");
   const cached = cache.get(cacheKey);
