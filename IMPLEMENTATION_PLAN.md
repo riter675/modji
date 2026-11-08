@@ -4,8 +4,8 @@
 2. **Routing foundation (web path implemented):** Valhalla service for driving, walking and cycling; route alternatives, maneuvers and map geometry. Self-hosting and reproducible regional extracts remain.
 3. **Navigation (web path implemented):** foreground browser GPS tracking, accuracy-aware off-route status, manual recalculation and browser voice guidance. Native background support and moving-device verification remain.
 4. **Traffic (adapter implemented, credentials absent):** HERE Traffic API v7 flow and incidents with freshness metadata and map overlays. Live account-backed verification remains.
-5. **Data foundation (schema and local services scaffolded):** PostGIS migration and Docker Compose PostgreSQL/Redis services are present. They have not been run in this environment; application persistence is not connected.
-6. **Community, identity, and API:** reports, confirmation/moderation, authentication, Fastify REST/OpenAPI/WebSockets, rate limiting and durable application workflows remain.
+5. **Data foundation (partially implemented):** the Vercel Prisma Postgres database is connected and the web app creates its community-report tables on first API use. PostGIS, Redis, accounts and the wider spatial schema remain unconfigured.
+6. **Community, identity, and API (web reports implemented):** anonymous expiring road reports, viewport queries, duplicate checks, per-browser rate limits and distinct community votes are live. Accounts, moderation tools, Fastify REST/OpenAPI/WebSockets and broader durable workflows remain.
 7. **Mobile and release:** Expo native map, platform permissions, build pipeline, device verification, monitoring and deployment remain.
 
 ## Architecture direction

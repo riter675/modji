@@ -6,9 +6,9 @@
 
 The current route handlers are development-scale adapters, not a versioned public API. Nominatim and the public Valhalla demo have usage limits and are not production commercial backends.
 
-## Data foundation (not yet connected to the app)
+## Data foundation (community reports connected)
 
-`docker-compose.yml` defines local PostGIS and Redis. `infrastructure/database/migrations/001_initial.sql` defines the initial spatial and account-oriented schema. The migration is mounted as a first-boot initialization script. No application repository, migration runner, Redis client, or durable authentication flow is connected yet. Docker and `psql` were unavailable when this was documented, so the migration has not been executed here.
+`docker-compose.yml` defines local PostGIS and Redis. `infrastructure/database/migrations/001_initial.sql` defines the broader spatial and account-oriented schema and remains unapplied. The deployed web app uses the connected Prisma Postgres instance for community reports through `pg`; it idempotently creates the tables described in migration 002 on first use. That live subset stores coordinates as numeric latitude/longitude and does not require PostGIS. Redis, account authentication and the broader schema are not connected.
 
 ## Intended next architecture
 
