@@ -6,7 +6,7 @@ MODJI is an independent mapping and mobility product. The current web milestone 
 
 ## Run locally
 
-Requirements: Node.js 20+ and pnpm.
+Requirements: Node.js 22+ and pnpm 11.25.0.
 
 ```sh
 pnpm install
@@ -16,6 +16,8 @@ pnpm dev
 Open the local URL printed by Next.js. The map style is hosted by OpenFreeMap and map data is OpenStreetMap. Search submits an explicit query to the OpenStreetMap Nominatim service; it is not autocomplete. The public service has a strict usage policy and is suitable only for low volume development, not production commercial traffic. Replace it with an appropriately licensed HERE Search adapter before production. Browser location requires permission and a secure context (HTTPS or localhost).
 
 Quality checks: `pnpm lint`, `pnpm typecheck`, and `pnpm test`. To serve an optimized build, run `pnpm build` and then `pnpm start` (do not run the production build concurrently with the dev server).
+
+The current web app is deployed at [modji-eight.vercel.app](https://modji-eight.vercel.app) from GitHub `main`. See [DEPLOYMENT.md](DEPLOYMENT.md) for configuration and production limitations.
 
 ## Current milestone
 
