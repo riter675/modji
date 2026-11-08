@@ -4,11 +4,14 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import maplibregl, { GeoJSONSource, Map, Marker } from "maplibre-gl";
+import type { FeatureCollection } from "geojson";
 import { nearestRoutePoint, distanceMeters } from "../lib/route-matching";
 
 type Place = { lat: string; lon: string; display_name: string; type?: string };
 type Coordinate = { lat: number; lon: number };
 type RouteOption = { distanceKm: number; durationSeconds: number; geometry: { type: "LineString"; coordinates: [number, number][] }; maneuvers: { instruction: string; distanceKm: number; durationSeconds: number; street: string; endShapeIndex: number }[] };
+type TrafficCollection = { type: "FeatureCollection"; features: { type: "Feature"; properties: Record<string, string | number | boolean | null>; geometry: { type: "MultiLineString"; coordinates: [number, number][][] } }[] };
+type TrafficData = { provider: string; updatedAt: { flow: string | null; incidents: string | null }; flow: TrafficCollection; incidents: TrafficCollection; counts: { flow: number; incidents: number } };
 const mapStyles = { liberty: "https://tiles.openfreemap.org/styles/liberty", positron: "https://tiles.openfreemap.org/styles/positron", dark: "https://tiles.openfreemap.org/styles/dark" } as const;
 type MapStyleName = keyof typeof mapStyles;
 
@@ -36,6 +39,9 @@ export default function MapWorkspace() {
   const [routeError, setRouteError] = useState("");
   const [mapStyle, setMapStyle] = useState<MapStyleName>("liberty");
   const [trafficOpen, setTrafficOpen] = useState(false);
+  const [trafficData, setTrafficData] = useState<TrafficData | null>(null);
+  const [trafficLoading, setTrafficLoading] = useState(false);
+  const [trafficError, setTrafficError] = useState("");
   const [navigationStatus, setNavigationStatus] = useState<"idle" | "navigating" | "off-route" | "arrived">("idle");
   const [navigationPosition, setNavigationPosition] = useState<GeolocationPosition | null>(null);
   const [navigationError, setNavigationError] = useState("");
@@ -126,6 +132,51 @@ export default function MapWorkspace() {
     map.current.fitBounds(bounds, { padding: { top: 110, right: 45, bottom: mobile ? 460 : 70, left: mobile ? 45 : 430 }, maxZoom: 15, duration: 900 });
   }
 
+  function clearTraffic() {
+    const instance = map.current;
+    if (!instance) return;
+    ["modji-traffic-incidents", "modji-traffic-flow"].forEach((id) => { if (instance.getLayer(id)) instance.removeLayer(id); });
+    ["modji-traffic-incidents", "modji-traffic-flow"].forEach((id) => { if (instance.getSource(id)) instance.removeSource(id); });
+  }
+
+  function drawTraffic(data: TrafficData) {
+    const instance = map.current;
+    if (!instance || !mapLoaded) return;
+    const flowSource = instance.getSource("modji-traffic-flow") as GeoJSONSource | undefined;
+    if (flowSource) flowSource.setData(data.flow as FeatureCollection);
+    else {
+      instance.addSource("modji-traffic-flow", { type: "geojson", data: data.flow as FeatureCollection });
+      instance.addLayer({ id: "modji-traffic-flow", type: "line", source: "modji-traffic-flow", layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": ["interpolate", ["linear"], ["get", "jamFactor"], 0, "#48a977", 2, "#e0b545", 5, "#e47c32", 8, "#d94736", 10, "#82251f"], "line-width": 4, "line-opacity": 0.88 } });
+    }
+    const incidentSource = instance.getSource("modji-traffic-incidents") as GeoJSONSource | undefined;
+    if (incidentSource) incidentSource.setData(data.incidents as FeatureCollection);
+    else {
+      instance.addSource("modji-traffic-incidents", { type: "geojson", data: data.incidents as FeatureCollection });
+      instance.addLayer({ id: "modji-traffic-incidents", type: "line", source: "modji-traffic-incidents", layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": ["case", ["==", ["get", "roadClosed"], true], "#8b1f27", "#a043b7"], "line-width": 5, "line-dasharray": [1.5, 1] } });
+    }
+  }
+
+  async function loadTraffic() {
+    const bounds = map.current?.getBounds();
+    if (!bounds) { setTrafficError("The map is not ready yet."); return; }
+    setTrafficLoading(true); setTrafficError("");
+    const bbox = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()].map((value) => value.toFixed(6)).join(",");
+    try {
+      const response = await fetch(`/api/traffic?bbox=${encodeURIComponent(bbox)}`);
+      const payload = await response.json() as TrafficData & { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Live traffic is unavailable.");
+      setTrafficData(payload);
+      drawTraffic(payload);
+    } catch (cause) {
+      setTrafficError(cause instanceof Error ? cause.message : "Live traffic is unavailable.");
+    } finally { setTrafficLoading(false); }
+  }
+
+  function toggleTraffic() {
+    if (trafficOpen) { setTrafficOpen(false); clearTraffic(); }
+    else { setTrafficOpen(true); void loadTraffic(); }
+  }
+
   function changeMapStyle(value: MapStyleName) {
     setMapStyle(value);
     const instance = map.current;
@@ -134,6 +185,7 @@ export default function MapWorkspace() {
     instance.once("style.load", () => {
       const route = routeChoices[activeRoute];
       if (route) drawRoute(route);
+      if (trafficOpen && trafficData) drawTraffic(trafficData);
     });
   }
 
@@ -234,7 +286,7 @@ export default function MapWorkspace() {
     <header className="topbar">
       <Link className="brand" href="/" aria-label="MODJI home"><Image src="/modji-logo-original.jpeg" alt="MODJI" width={38} height={38} priority /><span>MODJI</span></Link>
       <span className="tagline">Navigate your world.</span>
-      <nav aria-label="Main navigation"><a className="active" href="#explore">Explore</a><a href="#navigate" onClick={(event) => { event.preventDefault(); if (place) setRoutePanelOpen(true); else setError("Search for a destination first to plan a route."); }}>Navigate</a><a href="#traffic" onClick={(event) => { event.preventDefault(); setTrafficOpen(!trafficOpen); }}>Traffic</a></nav>
+      <nav aria-label="Main navigation"><a className="active" href="#explore">Explore</a><a href="#navigate" onClick={(event) => { event.preventDefault(); if (place) setRoutePanelOpen(true); else setError("Search for a destination first to plan a route."); }}>Navigate</a><a href="#traffic" onClick={(event) => { event.preventDefault(); toggleTraffic(); }}>Traffic</a></nav>
       <button className="avatar" aria-label="Accounts are not implemented yet" disabled title="Accounts are not implemented yet">M</button>
     </header>
     <section className="search-panel" aria-label="Explore the map">
@@ -249,7 +301,7 @@ export default function MapWorkspace() {
       <p className="search-hint">Search cities, landmarks, addresses and more</p>
       <button className="location-button" onClick={locate}><span>◎</span> Use my location</button>
       {error && <div className="message error" role="alert">{error}</div>}
-      {trafficOpen && <div className="traffic-message" role="status"><b>Live traffic unavailable</b><span>Traffic data is not connected yet. Route times are static estimates.</span></div>}
+      {trafficOpen && <div className="traffic-message" role="status"><b>{trafficLoading ? "Loading live traffic…" : trafficError ? "Live traffic unavailable" : "Live traffic"}</b><span>{trafficError || (trafficData ? `${trafficData.counts.flow} flow segments · ${trafficData.counts.incidents} incidents` : "Waiting for traffic data.")}</span>{trafficData && <span>Flow updated: {trafficData.updatedAt.flow ?? "time unavailable"} · Incidents updated: {trafficData.updatedAt.incidents ?? "time unavailable"}</span>}</div>}
       {place && <article className="place-card" aria-live="polite"><div className="place-pin">●</div><div className="place-content"><div className="place-label">{place.type ? place.type.replaceAll("_", " ") : "PLACE"}</div><h2>{place.display_name}</h2><p>{Number(place.lat).toFixed(5)}° · {Number(place.lon).toFixed(5)}°</p><button className="route-open" onClick={() => setRoutePanelOpen(!routePanelOpen)}>{routePanelOpen ? "Close route planner" : "Plan a route"}</button></div></article>}
       {place && routePanelOpen && <section className="route-panel" aria-label="Route planner">
         <div className="place-label">ROUTE PLANNER</div>

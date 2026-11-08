@@ -4,7 +4,7 @@
 2. **Provider-backed search and data policy:** HERE adapter/configuration, search categories, reverse geocoding and coverage metadata.
 3. **Routing foundation (web path implemented):** Valhalla service for driving, walking and cycling; route alternatives, maneuvers and map geometry. Self-hosting and reproducible regional extracts remain.
 4. **Navigation (web path implemented):** GPS-aware foreground tracking, accuracy-aware off-route status, manual recalculation and browser voice guidance. Native background support and device verification remain.
-5. **Traffic and community:** HERE traffic adapter, source/freshness attribution, validated and expiring incident reports.
+5. **Traffic and community:** HERE Traffic API v7 adapter and map overlays are implemented but credential-gated; validate with an account key, then add validated and expiring community reports.
 6. **Accounts and platform operations:** PostgreSQL/PostGIS, Redis, API, security, privacy, and persistence.
 7. **Mobile and release:** Expo native map, platform permissions, build pipeline, device verification, monitoring and deployment.
 

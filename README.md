@@ -24,7 +24,8 @@ Quality checks: `pnpm lint`, `pnpm typecheck`, and `pnpm test`. To serve an opti
 - Real browser geolocation, subject to device/browser permission.
 - Valhalla driving, walking and cycling route API, road geometry, maneuver instructions and up to two alternatives.
 - Foreground GPS tracking during an explicitly started navigation session, location accuracy display, off-route detection and browser voice guidance. Background/mobile navigation is not included.
+- Credential-gated HERE Traffic API v7 adapter for flow and incidents, freshness timestamps, and map overlays. Add `HERE_TRAFFIC_API_KEY` to the server environment to enable it.
 - Route durations are static estimates. The community Valhalla demo is the default for low-volume development only; set `VALHALLA_URL` to a self-hosted or licensed deployment before production.
 - Original MODJI image supplied by the user, preserved at `assets/branding/modji-logo-original.jpeg`.
 
-Native mobile apps, background navigation, professional traffic, persisted accounts, community reports, and the production Fastify/PostGIS/Redis backend are not implemented yet. Web GPS and voice guidance require a real browser/device permission and have not been verified on a moving device. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) and [DATA_SOURCES.md](DATA_SOURCES.md).
+Native mobile apps, background navigation, persisted accounts, community reports, and the production Fastify/PostGIS/Redis backend are not implemented yet. HERE traffic has not been verified because no HERE traffic key is configured. Web GPS and voice guidance require a real browser/device permission and have not been verified on a moving device. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) and [DATA_SOURCES.md](DATA_SOURCES.md).
