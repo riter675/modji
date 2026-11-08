@@ -1,0 +1,15 @@
+{
+  "name": "modji",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@11.25.0",
+  "scripts": {
+    "dev": "pnpm --filter @modji/web dev",
+    "start": "pnpm --filter @modji/web start",
+    "build": "pnpm --filter @modji/web build",
+    "lint": "pnpm --filter @modji/web lint",
+    "typecheck": "pnpm --filter @modji/web typecheck",
+    "test": "pnpm --filter @modji/web test"
+  },
+  "devDependencies": { "turbo": "^2.5.0", "typescript": "^5.8.3" }
+}
