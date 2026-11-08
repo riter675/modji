@@ -1,4 +1,4 @@
-name: Android APK
+name: Android Release APK
 
 on:
   workflow_dispatch:
@@ -34,13 +34,29 @@ jobs:
         with:
           packages: "platform-tools platforms;android-36 build-tools;36.0.0"
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @modji/mobile exec expo prebuild --platform android --non-interactive
-      - name: Build installable debug APK
+      - run: pnpm --filter @modji/mobile exec expo prebuild --platform android --clean --non-interactive
+      - name: Build Android release variant
         working-directory: apps/mobile/android
-        run: ./gradlew --no-daemon assembleDebug
+        run: ./gradlew --no-daemon clean assembleRelease
+      - name: Verify release APK contains the embedded JavaScript bundle
+        working-directory: apps/mobile/android
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="app/build/outputs/apk/release/app-release.apk"
+          test -s "$apk"
+          unzip -Z1 "$apk" > apk-contents.txt
+          grep -Fxq 'assets/index.android.bundle' apk-contents.txt
+          grep -Eq '^lib/arm64-v8a/.*\.so$' apk-contents.txt
+          bundle_bytes="$(unzip -p "$apk" assets/index.android.bundle | wc -c)"
+          test "$bundle_bytes" -gt 100000
+          echo "Release APK: $apk"
+          echo "Embedded assets/index.android.bundle: ${bundle_bytes} bytes"
+          echo "Native ARM64 libraries: $(grep -Ec '^lib/arm64-v8a/.*\.so$' apk-contents.txt)"
+          "${ANDROID_HOME}/build-tools/36.0.0/aapt" dump badging "$apk" | grep -m1 "^package: name='"
       - uses: actions/upload-artifact@v4
         with:
-          name: modji-android-apk
-          path: apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          name: modji-android-release-apk
+          path: apps/mobile/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30
