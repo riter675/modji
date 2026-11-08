@@ -14,6 +14,7 @@ type TrafficCollection = { type: "FeatureCollection"; features: { type: "Feature
 type TrafficData = { provider: string; updatedAt: { flow: string | null; incidents: string | null }; flow: TrafficCollection; incidents: TrafficCollection; counts: { flow: number; incidents: number } };
 const mapStyles = { liberty: "https://tiles.openfreemap.org/styles/liberty", positron: "https://tiles.openfreemap.org/styles/positron", dark: "https://tiles.openfreemap.org/styles/dark" } as const;
 type MapStyleName = keyof typeof mapStyles;
+type CommunityReport = { id: string; category: string; latitude: number; longitude: number; description: string | null; status: string; validation_count: number };
 
 export default function MapWorkspace() {
   const mapElement = useRef<HTMLDivElement>(null);
@@ -47,6 +48,32 @@ export default function MapWorkspace() {
   const [navigationError, setNavigationError] = useState("");
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [nextManeuver, setNextManeuver] = useState(0);
+  const [communityOpen, setCommunityOpen] = useState(false);
+  const [reports, setReports] = useState<CommunityReport[]>([]);
+  const [reportCategory, setReportCategory] = useState("hazard");
+  const [reportDescription, setReportDescription] = useState("");
+  const [communityMessage, setCommunityMessage] = useState("");
+  const [communityBusy, setCommunityBusy] = useState(false);
+
+  async function loadReports() {
+    const bounds = map.current?.getBounds(); if (!bounds) return;
+    const bbox = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()].join(",");
+    try { const response = await fetch(`/api/community/reports?bbox=${encodeURIComponent(bbox)}`); const data = await response.json() as { reports?: CommunityReport[]; error?: string }; if (!response.ok) throw new Error(data.error); setReports(data.reports ?? []); setCommunityMessage(""); }
+    catch (cause) { setCommunityMessage(cause instanceof Error ? cause.message : "Community reports are unavailable."); }
+  }
+
+  async function submitReport() {
+    const center = map.current?.getCenter(); if (!center) return;
+    setCommunityBusy(true); setCommunityMessage("");
+    try { const response = await fetch("/api/community/reports", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ latitude: center.lat, longitude: center.lng, category: reportCategory, description: reportDescription }) }); const data = await response.json() as { report?: CommunityReport; error?: string }; if (!response.ok) throw new Error(data.error); setReportDescription(""); setCommunityMessage("Report submitted. Thanks for helping other travelers."); await loadReports(); }
+    catch (cause) { setCommunityMessage(cause instanceof Error ? cause.message : "Report could not be submitted."); }
+    finally { setCommunityBusy(false); }
+  }
+
+  async function voteReport(id: string, vote: "confirm" | "resolved" | "incorrect") {
+    try { const response = await fetch(`/api/community/reports/${id}/votes`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ vote }) }); const data = await response.json() as { error?: string }; if (!response.ok) throw new Error(data.error); await loadReports(); }
+    catch (cause) { setCommunityMessage(cause instanceof Error ? cause.message : "Vote could not be submitted."); }
+  }
 
   useEffect(() => {
     if (!mapElement.current || map.current) return;
@@ -70,7 +97,9 @@ export default function MapWorkspace() {
       window.clearTimeout(loadTimeout);
       setMapLoaded(true);
       setMapError("");
+      void loadReports();
     });
+    instance.on("moveend", () => { void loadReports(); });
     const resizeObserver = new ResizeObserver(() => instance.resize());
     resizeObserver.observe(mapElement.current);
     requestAnimationFrame(() => instance.resize());
@@ -79,6 +108,18 @@ export default function MapWorkspace() {
     map.current = instance;
     return () => { window.clearTimeout(loadTimeout); resizeObserver.disconnect(); if (watchId.current !== null) navigator.geolocation?.clearWatch(watchId.current); marker.current?.remove(); gpsMarker.current?.remove(); instance.remove(); map.current = null; };
   }, []);
+
+  useEffect(() => {
+    const instance = map.current;
+    if (!instance || !mapLoaded) return;
+    const data = { type: "FeatureCollection" as const, features: reports.map((report) => ({ type: "Feature" as const, properties: { id: report.id, category: report.category, status: report.status, count: report.validation_count }, geometry: { type: "Point" as const, coordinates: [report.longitude, report.latitude] as [number, number] } })) };
+    const source = instance.getSource("modji-community-reports") as GeoJSONSource | undefined;
+    if (source) source.setData(data);
+    else {
+      instance.addSource("modji-community-reports", { type: "geojson", data });
+      instance.addLayer({ id: "modji-community-report-points", type: "circle", source: "modji-community-reports", paint: { "circle-radius": 8, "circle-color": "#b44231", "circle-stroke-color": "#fff", "circle-stroke-width": 2 } });
+    }
+  }, [reports, mapLoaded]);
 
   async function search(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -186,6 +227,8 @@ export default function MapWorkspace() {
       const route = routeChoices[activeRoute];
       if (route) drawRoute(route);
       if (trafficOpen && trafficData) drawTraffic(trafficData);
+      const source = map.current?.getSource("modji-community-reports") as GeoJSONSource | undefined;
+      if (source) source.setData({ type: "FeatureCollection", features: reports.map((report) => ({ type: "Feature" as const, properties: { id: report.id }, geometry: { type: "Point" as const, coordinates: [report.longitude, report.latitude] as [number, number] } })) });
     });
   }
 
@@ -286,7 +329,7 @@ export default function MapWorkspace() {
     <header className="topbar">
       <Link className="brand" href="/" aria-label="MODJI home"><Image src="/modji-logo-original.jpeg" alt="MODJI" width={38} height={38} priority /><span>MODJI</span></Link>
       <span className="tagline">Navigate your world.</span>
-      <nav aria-label="Main navigation"><a className="active" href="#explore">Explore</a><a href="#navigate" onClick={(event) => { event.preventDefault(); if (place) setRoutePanelOpen(true); else setError("Search for a destination first to plan a route."); }}>Navigate</a><a href="#traffic" onClick={(event) => { event.preventDefault(); toggleTraffic(); }}>Traffic</a></nav>
+      <nav aria-label="Main navigation"><a className="active" href="#explore">Explore</a><a href="#navigate" onClick={(event) => { event.preventDefault(); if (place) setRoutePanelOpen(true); else setError("Search for a destination first to plan a route."); }}>Navigate</a><a href="#traffic" onClick={(event) => { event.preventDefault(); toggleTraffic(); }}>Traffic</a><a href="#community" onClick={(event) => { event.preventDefault(); setCommunityOpen(!communityOpen); void loadReports(); }}>Community</a></nav>
       <button className="avatar" aria-label="Accounts are not implemented yet" disabled title="Accounts are not implemented yet">M</button>
     </header>
     <section className="search-panel" aria-label="Explore the map">
@@ -302,6 +345,7 @@ export default function MapWorkspace() {
       <button className="location-button" onClick={locate}><span>◎</span> Use my location</button>
       {error && <div className="message error" role="alert">{error}</div>}
       {trafficOpen && <div className="traffic-message" role="status"><b>{trafficLoading ? "Loading live traffic…" : trafficError ? "Live traffic unavailable" : "Live traffic"}</b><span>{trafficError || (trafficData ? `${trafficData.counts.flow} flow segments · ${trafficData.counts.incidents} incidents` : "Waiting for traffic data.")}</span>{trafficData && <span>Flow updated: {trafficData.updatedAt.flow ?? "time unavailable"} · Incidents updated: {trafficData.updatedAt.incidents ?? "time unavailable"}</span>}</div>}
+      {communityOpen && <section className="community-panel" aria-label="Community reports"><div className="place-label">COMMUNITY ROAD REPORTS</div><p>Reports use the map center ({map.current?.getCenter().lat.toFixed(4)}, {map.current?.getCenter().lng.toFixed(4)}). Active reports expire after two hours.</p><select aria-label="Report category" value={reportCategory} onChange={(event) => setReportCategory(event.target.value)}><option value="accident">Accident</option><option value="congestion">Congestion</option><option value="slow_traffic">Slow traffic</option><option value="roadworks">Roadworks</option><option value="road_closure">Road closure</option><option value="hazard">Hazard</option><option value="object_on_road">Object on road</option><option value="vehicle_breakdown">Vehicle breakdown</option><option value="other">Other</option></select><input maxLength={500} placeholder="Short description (optional)" value={reportDescription} onChange={(event) => setReportDescription(event.target.value)} /><button className="route-submit" disabled={communityBusy} onClick={() => void submitReport()}>{communityBusy ? "Submitting…" : "Report at map center"}</button>{communityMessage && <div className="community-note" role="status">{communityMessage}</div>}<div className="report-list">{reports.map((report) => <article key={report.id}><b>{report.category.replaceAll("_", " ")}</b><span>{report.description || "Community reported"} · {report.status}</span><div><button onClick={() => void voteReport(report.id,"confirm")}>Confirm</button><button onClick={() => void voteReport(report.id,"resolved")}>Resolved</button><button onClick={() => void voteReport(report.id,"incorrect")}>Incorrect</button></div></article>)}{reports.length === 0 && <span>No active reports in this view.</span>}</div></section>}
       {place && <article className="place-card" aria-live="polite"><div className="place-pin">●</div><div className="place-content"><div className="place-label">{place.type ? place.type.replaceAll("_", " ") : "PLACE"}</div><h2>{place.display_name}</h2><p>{Number(place.lat).toFixed(5)}° · {Number(place.lon).toFixed(5)}°</p><button className="route-open" onClick={() => setRoutePanelOpen(!routePanelOpen)}>{routePanelOpen ? "Close route planner" : "Plan a route"}</button></div></article>}
       {place && routePanelOpen && <section className="route-panel" aria-label="Route planner">
         <div className="place-label">ROUTE PLANNER</div>
